@@ -167,7 +167,7 @@ impl App {
                 let _ = self.current_guess_input.pop();
             }
             KeyCode::Char(c) => {
-                if self.current_guess_input.len() < 5 && c.is_alphanumeric() {
+                if self.current_guess_input.len() < 5 && c.is_alphabetic() {
                     self.current_guess_input.push(c.to_ascii_uppercase());
                 }
             }
@@ -176,11 +176,7 @@ impl App {
     }
 
     fn submit_guess(&mut self) {
-        if self.current_guess_input.len() != 5 {
-            return;
-        }
-
-        if !self.word_list.contains(&self.current_guess_input) {
+        if self.current_guess_input.len() != 5 || !self.word_list.contains(&self.current_guess_input) {
             return;
         }
 
@@ -189,17 +185,15 @@ impl App {
 
         let parsed_guess = g.char_indices()
             .map(|(i, c)| {
-                let position_matches = self.solution.char_indices().filter(|(_, cc)| c.eq_ignore_ascii_case(cc));
-                let mut position = LetterPosition::None;
-
-                for (matched_position, _) in position_matches {
-                    if matched_position == i {
-                        position = LetterPosition::Correct;
-                        break;
-                    }
-
-                    position = LetterPosition::WrongPlacement;
-                }
+                let position = self.solution.char_indices()
+                    .filter(|(_, cc)| c.eq_ignore_ascii_case(cc))
+                    .map(|(matched_pos, _)| if matched_pos == i {
+                        LetterPosition::Correct
+                    } else {
+                        LetterPosition::WrongPlacement
+                    })
+                    .max_by_key(LetterPosition::value)
+                    .unwrap_or(LetterPosition::None);
 
                 ParsedLetter {
                     letter: c,
@@ -208,9 +202,6 @@ impl App {
             })
             .collect::<Vec<ParsedLetter>>();
 
-        println!("{:?}", parsed_guess);
-        println!("{} vs {}", g, self.solution);
-
         self.guesses_parsed.push(parsed_guess);
 
         if self.solution.eq_ignore_ascii_case(&g) || self.guesses_parsed.len() == 6 {
@@ -218,32 +209,35 @@ impl App {
         }
     }
 
+    // todo if found letter is used in guess, and again, will mark it as right and as appearing again yellow
     fn color_from_known_information(&self, input: &str) -> Line {
-        let mut best_guess_options = Vec::from([LetterPosition::None; 5]);
+        let span_chars = input
+            .char_indices()
+            .map(|(input_index, input_char)| (
+                input_char, self.guesses_parsed.iter()
 
-        for guessed_word in &self.guesses_parsed {
-            for (parsed_letter_index, parsed_letter) in guessed_word.iter()
-                .enumerate()
-                .filter(|(_i, parsed_letter)| input.contains(parsed_letter.letter)) {
-                for (input_letter_index, _) in input.char_indices()
-                    .filter(|(_i, input_letter)| input_letter == &parsed_letter.letter) {
-                    let mut best = LetterPosition::None;
-                    if input_letter_index == parsed_letter_index {
-                        best = LetterPosition::Correct;
-                    } else {
-                        best = LetterPosition::WrongPlacement;
-                    }
+                    .flat_map(|guessed_word| guessed_word.iter().enumerate())
+                    .filter(|(_, parsed_letter)| parsed_letter.letter == input_char)
 
-                    if best_guess_options[input_letter_index].value() < best.value() {
-                        best_guess_options[input_letter_index] = best;
-                    }
-                }
-            }
-        }
+                    .map(|(parsed_index, parsed_letter)|
+                        if parsed_letter.position == LetterPosition::None {
+                            LetterPosition::None
+                        } else if parsed_index == input_index {
+                            LetterPosition::Correct
+                        } else {
+                            LetterPosition::WrongPlacement
+                        }
+                    )
+                    .max_by_key(LetterPosition::value)
+            ))
+            .map(|(input_char, input_position)| {
+                let color = match input_position {
+                    Some(ip) => ip.color(),
+                    None => Color::White
+                };
 
-        let span_chars = best_guess_options.iter()
-            .enumerate()
-            .map(|(i, p)| Span::from(input.chars().collect::<Vec<char>>()[i].to_string()).style(Style::default().fg(p.color())))
+                Span::from(input_char.to_string()).style(Style::default().fg(color))
+            })
             .collect::<Vec<Span>>();
 
         Line::from(span_chars)
@@ -281,7 +275,7 @@ impl App {
         frame.render_widget(input, input_area);
         frame.set_cursor_position(Position::new(
             input_area.x + self.current_guess_input.len() as u16,
-            input_area.y + 1,
+            input_area.y,
         ));
     }
 }
