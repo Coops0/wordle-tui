@@ -81,7 +81,7 @@ fn fetch_word_list() -> anyhow::Result<Vec<String>> {
         .map_err(|e| anyhow::anyhow!(e))
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy)]
 enum LetterPosition {
     None,
     WrongPlacement,
@@ -92,16 +92,24 @@ impl LetterPosition {
     fn emoji(&self) -> char {
         match self {
             LetterPosition::None => '⬜',
-            LetterPosition::Correct => '🟩',
             LetterPosition::WrongPlacement => '🟨',
+            LetterPosition::Correct => '🟩'
         }
     }
 
     fn color(&self) -> Color {
         match self {
             LetterPosition::None => Color::DarkGray,
-            LetterPosition::Correct => Color::LightGreen,
             LetterPosition::WrongPlacement => Color::LightYellow,
+            LetterPosition::Correct => Color::LightGreen
+        }
+    }
+
+    fn value(&self) -> u8 {
+        match self {
+            LetterPosition::None => 0,
+            LetterPosition::WrongPlacement => 1,
+            LetterPosition::Correct => 2
         }
     }
 }
@@ -211,25 +219,23 @@ impl App {
     }
 
     fn color_from_known_information(&self, input: &str) -> Line {
-        let mut best_guess_options = iter::repeat(LetterPosition::None)
-            .take(input.len())
-            .collect::<Vec<LetterPosition>>();
+        let mut best_guess_options = Vec::from([LetterPosition::None; 5]);
 
         for guessed_word in &self.guesses_parsed {
-            for (parsed_letter_index, parsed_letter) in guessed_word.iter().enumerate() {
-                if !input.contains(parsed_letter.letter) {
-                    continue;
-                }
-
-                for (input_letter_index, input_letter) in best_guess_options.clone().iter().enumerate() {
-                    if parsed_letter.letter != input.chars().collect::<Vec<char>>()[input_letter_index] {
-                        continue;
+            for (parsed_letter_index, parsed_letter) in guessed_word.iter()
+                .enumerate()
+                .filter(|(_i, parsed_letter)| input.contains(parsed_letter.letter)) {
+                for (input_letter_index, _) in input.char_indices()
+                    .filter(|(_i, input_letter)| input_letter == &parsed_letter.letter) {
+                    let mut best = LetterPosition::None;
+                    if input_letter_index == parsed_letter_index {
+                        best = LetterPosition::Correct;
+                    } else {
+                        best = LetterPosition::WrongPlacement;
                     }
 
-                    if input_letter_index == parsed_letter_index {
-                        best_guess_options[input_letter_index] = LetterPosition::Correct;
-                    } else if input_letter == &LetterPosition::None {
-                        best_guess_options[input_letter_index] = LetterPosition::WrongPlacement;
+                    if best_guess_options[input_letter_index].value() < best.value() {
+                        best_guess_options[input_letter_index] = best;
                     }
                 }
             }
