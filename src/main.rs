@@ -9,25 +9,25 @@ use crossterm::event::{
     KeyModifiers,
 };
 use ratatui::{
-    widgets::{Block, List, ListDirection, ListItem, Paragraph},
-    text::{Line, Span},
+    layout::{Constraint, Layout},
     style::{Color, Style},
-    layout::{Constraint, Layout, Position},
+    text::{Line, Span},
+    widgets::{List, ListItem, Paragraph},
     DefaultTerminal,
     Frame,
 };
-use std::collections::HashMap;
-use std::{fs, mem};
+use std::{
+    collections::HashMap,
+    fs,
+    mem,
+};
+use ratatui::style::Stylize;
 use ureq::{
     serde_json,
     serde_json::Value,
 };
 
-fn main() {
-    main_wrapped().unwrap();
-}
-
-fn main_wrapped() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let date_string = Local::now().format("%Y-%m-%d");
 
     let wordle_api_response = ureq::get(&format!("https://www.nytimes.com/svc/wordle/v2/{date_string}.json"))
@@ -252,7 +252,6 @@ impl App {
             })
             .map(|(input_char, input_position)| {
                 let color = input_position.map_or(Color::White, LetterPosition::color);
-
                 Span::from(input_char.to_string()).style(Style::default().fg(color))
             })
             .collect::<Vec<Span>>();
@@ -261,14 +260,21 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let vertical = Layout::vertical([
-            Constraint::Percentage(60),
-            Constraint::Percentage(10),
-        ]);
-        let [guess_area, input_area] = vertical.areas(frame.area());
+        let layout = Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(1),
+                Constraint::Length(3),
+            ])
+            .split(frame.area());
 
-        let guesses: Vec<ListItem> = self
-            .guesses
+        let title = Paragraph::new("WORDLE")
+            .style(Style::default().fg(Color::LightBlue).dim())
+            .centered();
+        frame.render_widget(title, layout[0]);
+
+        let guesses: Vec<ListItem> = self.guesses
             .iter()
             .map(|letters| {
                 let colored_spans = letters.iter()
@@ -282,20 +288,21 @@ impl App {
             })
             .collect();
 
-        let guess_list = List::new(guesses)
-            .direction(ListDirection::TopToBottom)
-            .block(Block::bordered());
+        let guesses_list = List::new(guesses)
+            .style(Style::default().fg(Color::White))
+            .highlight_style(Style::default().fg(Color::Yellow))
+            .highlight_symbol(">");
 
-        frame.render_widget(guess_list, guess_area);
+        frame.render_widget(guesses_list, layout[1]);
 
-        let input = Paragraph::new(self.color_from_known_information(&self.current_guess_input)).centered();
-
-        frame.render_widget(input, input_area);
+        let input = Paragraph::new(self.color_from_known_information(&self.current_guess_input))
+            .left_aligned();
+        frame.render_widget(input, layout[2]);
 
         #[allow(clippy::cast_possible_truncation)]
-        frame.set_cursor_position(Position::new(
-            input_area.x + self.current_guess_input.len() as u16,
-            input_area.y,
+        frame.set_cursor_position((
+            self.current_guess_input.len() as u16,
+            layout[2].y,
         ));
     }
 }
