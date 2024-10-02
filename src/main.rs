@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
         bail!("solution value was not type of string");
     };
 
-    let word_list;
+    let mut word_list;
 
     if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
         word_list = word_list_cache.lines()
@@ -48,14 +48,13 @@ fn main() -> anyhow::Result<()> {
     } else {
         println!("fetching word list...");
 
-        word_list = fetch_word_list()?
-            .into_iter()
-            .map(|s| s.to_uppercase())
-            .collect::<Vec<String>>();
+        word_list = fetch_word_list()?;
+        word_list.iter_mut().for_each(|s| *s = s.to_uppercase());
+
         fs::write(".word-list.cache.txt", word_list.join("\n"))?;
     }
 
-    if let Ok(play_cache) = fs::read_to_string(".play.cache.txt") {
+    if let Ok(play_cache) = fs::read_to_string(".play.state.txt") {
         let mut lines = play_cache.lines().collect::<Vec<&str>>();
         if !lines.is_empty() && lines.remove(0) == solution {
             println!("you already played today\n{}", lines.join("\n"));
@@ -93,7 +92,7 @@ fn main() -> anyhow::Result<()> {
         app.guesses.last().is_some_and(|guess|
             guess.iter().all(|(_, p)| p == &Some(LetterPosition::Correct))
         ) { // got correct answer
-        fs::write(".play.cache.txt", format!("{solution}\n{}", emojis.join("\n")))?;
+        fs::write(".play.state.txt", format!("{solution}\n{}", emojis.join("\n")))?;
     }
 
     Ok(())
@@ -104,16 +103,12 @@ fn fetch_word_list() -> anyhow::Result<Vec<String>> {
         .call()?
         .into_string()?;
 
-    let mut array_parts = res.splitn(2, "const o=[");
-    let _ = array_parts.next();
+    let (array_json, _) = res.split_once("const o=[")
+        .and_then(|(_, p)| p.split_once(']'))
+        .context("failed to split array string")?;
 
-    let array_start_json = array_parts.next().context("could not find array start")?;
-
-    let mut array_full_parts = array_start_json.splitn(2, ']');
-    let array_end_json = array_full_parts.next().context("could not find array end")?;
-
-    serde_json::from_str::<Vec<String>>(&format!("[{array_end_json}]"))
-        .map_err(|e| anyhow::anyhow!(e))
+    serde_json::from_str::<Vec<String>>(&format!("[{array_json}]"))
+        .context("failed to parse array json")
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy)]
@@ -203,16 +198,17 @@ impl App {
             return;
         }
 
-        let mut g = String::new();
-        mem::swap(&mut g, &mut self.current_guess_input);
+        let g = mem::take(&mut self.current_guess_input);
 
         let mut parsed_guess = g.chars()
             .map(|c| (c, None))
             .collect::<Vec<(char, Option<LetterPosition>)>>();
 
+        let contains_letter = |letter| self.solution.contains(letter);
+
         for (index, letter) in g.char_indices() {
             // add to bad characters if irrelevant
-            if !self.solution.contains(letter) {
+            if !contains_letter(letter) {
                 if !self.bad_characters.contains(&letter) {
                     self.bad_characters.push(letter);
                 }
@@ -226,7 +222,7 @@ impl App {
         }
 
         for (index, letter) in g.char_indices() {
-            if !self.solution.contains(letter) || self.solution.as_bytes()[index] == letter as u8 {
+            if !contains_letter(letter) || self.solution.as_bytes()[index] == letter as u8 {
                 continue;
             }
 
@@ -243,14 +239,10 @@ impl App {
         // finally use the learned information to add to knowledge base
         parsed_guess.iter()
             .enumerate()
-            .filter_map(|(index, (letter, pos_opt))| {
-                pos_opt
-                    .as_ref()
-                    .map(|pos| (index, (letter, pos)))
-            })
+            .filter_map(|(i, &(l, pos_opt))| pos_opt.map(|pos| (i, (l, pos))))
             .for_each(|(index, (letter, position))| {
                 self.known_positions.entry(index).or_default()
-                    .push((*letter, *position));
+                    .push((letter, position));
             });
 
         self.guesses.push(parsed_guess);
