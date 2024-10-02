@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let word_list;
 
     if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
-        word_list = word_list_cache.split('\n')
+        word_list = word_list_cache.lines()
             .map(ToString::to_string)
             .collect::<Vec<String>>();
     } else {
@@ -53,6 +53,14 @@ fn main() -> anyhow::Result<()> {
             .map(|s| s.to_uppercase())
             .collect::<Vec<String>>();
         fs::write(".word-list.cache.txt", word_list.join("\n"))?;
+    }
+
+    if let Ok(play_cache) = fs::read_to_string(".play.cache.txt") {
+        let mut lines = play_cache.lines().collect::<Vec<&str>>();
+        if !lines.is_empty() && lines.remove(0) == solution {
+            println!("you already played today\n{}", lines.join("\n"));
+            return Ok(());
+        }
     }
 
     let mut terminal = ratatui::init();
@@ -70,12 +78,24 @@ fn main() -> anyhow::Result<()> {
     app.run(&mut terminal)?;
     ratatui::restore();
 
-    for guess in app.guesses {
-        println!("{}", guess.iter()
-            .map(|(_, p)| p.unwrap_or(LetterPosition::None).emoji())
-            .collect::<String>()
-        );
+    let emojis = app.guesses
+        .iter()
+        .map(|guess|
+            guess.iter()
+                .map(|(_, p)| p.unwrap_or(LetterPosition::None).emoji())
+                .collect::<String>()
+        )
+        .collect::<Vec<String>>();
+
+    println!("{}", emojis.join("\n"));
+
+    if emojis.len() == 6 || // used all guesses
+        app.guesses.last().is_some_and(|guess|
+            guess.iter().all(|(_, p)| p == &Some(LetterPosition::Correct))
+        ) { // got correct answer
+        fs::write(".play.cache.txt", format!("{solution}\n{}", emojis.join("\n")))?;
     }
+
     Ok(())
 }
 
@@ -222,8 +242,12 @@ impl App {
 
         // finally use the learned information to add to knowledge base
         parsed_guess.iter()
-            .filter_map(|(l, p_opt)| p_opt.as_ref().map(|p| (l, p)))
             .enumerate()
+            .filter_map(|(index, (letter, pos_opt))| {
+                pos_opt
+                    .as_ref()
+                    .map(|pos| (index, (letter, pos)))
+            })
             .for_each(|(index, (letter, position))| {
                 self.known_positions.entry(index).or_default()
                     .push((*letter, *position));
@@ -244,11 +268,13 @@ impl App {
                     return (input_char, Some(LetterPosition::None));
                 }
 
-                match self.known_positions.get(&input_index) {
-                    Some(known_char_info) if known_char_info.iter().any(|(l, p)| l == &input_char && p == &LetterPosition::Correct) =>
-                        (input_char, Some(LetterPosition::Correct)),
-                    _ => (input_char, None)
+                if let Some(known_char_info) = self.known_positions.get(&input_index) {
+                    if known_char_info.iter().any(|(l, p)| l.eq_ignore_ascii_case(&input_char) && p == &LetterPosition::Correct) {
+                        return (input_char, Some(LetterPosition::Correct));
+                    }
                 }
+
+                (input_char, None)
             })
             .map(|(input_char, input_position)| {
                 let color = input_position.map_or(Color::White, LetterPosition::color);
