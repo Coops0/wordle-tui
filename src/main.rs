@@ -1,15 +1,27 @@
 use anyhow::{bail, Context};
 use chrono::Local;
-use crossterm::event;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Constraint, Layout, Position};
-use ratatui::style::{Color, Style, Stylize};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, List, ListDirection, ListItem, Paragraph};
-use ratatui::{DefaultTerminal, Frame};
-use std::{fs, iter, mem};
-use ureq::serde_json;
-use ureq::serde_json::Value;
+use crossterm::event::{
+    self,
+    Event,
+    KeyCode,
+    KeyEvent,
+    KeyEventKind,
+    KeyModifiers,
+};
+use ratatui::{
+    widgets::{Block, List, ListDirection, ListItem, Paragraph},
+    text::{Line, Span},
+    style::{Color, Style},
+    layout::{Constraint, Layout, Position},
+    DefaultTerminal,
+    Frame,
+};
+use std::collections::HashMap;
+use std::{fs, mem};
+use ureq::{
+    serde_json,
+    serde_json::Value,
+};
 
 fn main() {
     main_wrapped().unwrap();
@@ -23,14 +35,14 @@ fn main_wrapped() -> anyhow::Result<()> {
         .context("Error querying wordle API")?
         .into_json::<Value>()?;
 
-    let Value::String(solution) = wordle_api_response["solution"].to_owned() else {
+    let Value::String(solution) = &wordle_api_response["solution"] else {
         bail!("solution value was not type of string");
     };
 
-    let mut word_list = Vec::new();
+    let word_list;
 
     if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
-        word_list = word_list_cache.split("\n")
+        word_list = word_list_cache.split('\n')
             .map(ToString::to_string)
             .collect::<Vec<String>>();
     } else {
@@ -44,10 +56,13 @@ fn main_wrapped() -> anyhow::Result<()> {
     }
 
     let mut terminal = ratatui::init();
+
     let mut app = App {
-        solution,
+        solution: solution.to_owned().to_uppercase(),
         word_list,
-        guesses_parsed: Vec::new(),
+        guesses: Vec::new(),
+        known_positions: HashMap::new(),
+        bad_characters: Vec::new(),
         current_guess_input: String::new(),
         exit: false,
     };
@@ -55,9 +70,9 @@ fn main_wrapped() -> anyhow::Result<()> {
     app.run(&mut terminal)?;
     ratatui::restore();
 
-    for guess in app.guesses_parsed {
+    for guess in app.guesses {
         println!("{}", guess.iter()
-            .map(|c| c.position.emoji())
+            .map(|(_, p)| p.unwrap_or(LetterPosition::None).emoji())
             .collect::<String>()
         );
     }
@@ -74,7 +89,7 @@ fn fetch_word_list() -> anyhow::Result<Vec<String>> {
 
     let array_start_json = array_parts.next().context("could not find array start")?;
 
-    let mut array_full_parts = array_start_json.splitn(2, "]");
+    let mut array_full_parts = array_start_json.splitn(2, ']');
     let array_end_json = array_full_parts.next().context("could not find array end")?;
 
     serde_json::from_str::<Vec<String>>(&format!("[{array_end_json}]"))
@@ -89,42 +104,31 @@ enum LetterPosition {
 }
 
 impl LetterPosition {
-    fn emoji(&self) -> char {
+    const fn emoji(self) -> char {
         match self {
-            LetterPosition::None => '⬜',
-            LetterPosition::WrongPlacement => '🟨',
-            LetterPosition::Correct => '🟩'
+            Self::None => '⬜',
+            Self::WrongPlacement => '🟨',
+            Self::Correct => '🟩'
         }
     }
 
-    fn color(&self) -> Color {
+    const fn color(self) -> Color {
         match self {
-            LetterPosition::None => Color::DarkGray,
-            LetterPosition::WrongPlacement => Color::LightYellow,
-            LetterPosition::Correct => Color::LightGreen
+            Self::None => Color::DarkGray,
+            Self::WrongPlacement => Color::LightYellow,
+            Self::Correct => Color::LightGreen
         }
     }
-
-    fn value(&self) -> u8 {
-        match self {
-            LetterPosition::None => 0,
-            LetterPosition::WrongPlacement => 1,
-            LetterPosition::Correct => 2
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ParsedLetter {
-    letter: char,
-    position: LetterPosition,
 }
 
 #[derive(Debug)]
 struct App {
     solution: String,
     word_list: Vec<String>,
-    guesses_parsed: Vec<Vec<ParsedLetter>>,
+
+    guesses: Vec<Vec<(char, Option<LetterPosition>)>>,
+    known_positions: HashMap<usize, Vec<(char, LetterPosition)>>,
+    bad_characters: Vec<char>,
 
     current_guess_input: String,
 
@@ -147,11 +151,10 @@ impl App {
             return Ok(());
         };
 
-        if key_event.kind != KeyEventKind::Press {
-            return Ok(());
+        if key_event.kind == KeyEventKind::Press {
+            self.handle_key_event(key_event);
         }
 
-        self.handle_key_event(key_event);
         Ok(())
     }
 
@@ -183,58 +186,72 @@ impl App {
         let mut g = String::new();
         mem::swap(&mut g, &mut self.current_guess_input);
 
-        let parsed_guess = g.char_indices()
-            .map(|(i, c)| {
-                let position = self.solution.char_indices()
-                    .filter(|(_, cc)| c.eq_ignore_ascii_case(cc))
-                    .map(|(matched_pos, _)| if matched_pos == i {
-                        LetterPosition::Correct
-                    } else {
-                        LetterPosition::WrongPlacement
-                    })
-                    .max_by_key(LetterPosition::value)
-                    .unwrap_or(LetterPosition::None);
+        let mut parsed_guess = g.chars()
+            .map(|c| (c, None))
+            .collect::<Vec<(char, Option<LetterPosition>)>>();
 
-                ParsedLetter {
-                    letter: c,
-                    position,
+        for (index, letter) in g.char_indices() {
+            // add to bad characters if irrelevant
+            if !self.solution.contains(letter) {
+                if !self.bad_characters.contains(&letter) {
+                    self.bad_characters.push(letter);
                 }
-            })
-            .collect::<Vec<ParsedLetter>>();
+                continue;
+            }
 
-        self.guesses_parsed.push(parsed_guess);
+            if self.solution.as_bytes()[index] == letter as u8 {
+                parsed_guess[index].1 = Some(LetterPosition::Correct);
+                continue;
+            }
+        }
 
-        if self.solution.eq_ignore_ascii_case(&g) || self.guesses_parsed.len() == 6 {
+        for (index, letter) in g.char_indices() {
+            if !self.solution.contains(letter) || self.solution.as_bytes()[index] == letter as u8 {
+                continue;
+            }
+
+            let solution_letter_occurrences = self.solution.chars().filter(|c| c == &letter).count();
+            let existing_letter_occurrences = parsed_guess.iter()
+                .filter(|(c, m)| c == &letter && m.is_some())
+                .count();
+
+            if solution_letter_occurrences > existing_letter_occurrences {
+                parsed_guess[index].1 = Some(LetterPosition::WrongPlacement);
+            }
+        }
+
+        // finally use the learned information to add to knowledge base
+        parsed_guess.iter()
+            .filter_map(|(l, p_opt)| p_opt.as_ref().map(|p| (l, p)))
+            .enumerate()
+            .for_each(|(index, (letter, position))| {
+                self.known_positions.entry(index).or_default()
+                    .push((*letter, *position));
+            });
+
+        self.guesses.push(parsed_guess);
+
+        if self.solution.eq_ignore_ascii_case(&g) || self.guesses.len() == 6 {
             self.exit = true;
         }
     }
 
-    // todo if found letter is used in guess, and again, will mark it as right and as appearing again yellow
     fn color_from_known_information(&self, input: &str) -> Line {
         let span_chars = input
             .char_indices()
-            .map(|(input_index, input_char)| (
-                input_char, self.guesses_parsed.iter()
+            .map(|(input_index, input_char)| {
+                if self.bad_characters.contains(&input_char) {
+                    return (input_char, Some(LetterPosition::None));
+                }
 
-                    .flat_map(|guessed_word| guessed_word.iter().enumerate())
-                    .filter(|(_, parsed_letter)| parsed_letter.letter == input_char)
-
-                    .map(|(parsed_index, parsed_letter)|
-                        if parsed_letter.position == LetterPosition::None {
-                            LetterPosition::None
-                        } else if parsed_index == input_index {
-                            LetterPosition::Correct
-                        } else {
-                            LetterPosition::WrongPlacement
-                        }
-                    )
-                    .max_by_key(LetterPosition::value)
-            ))
+                match self.known_positions.get(&input_index) {
+                    Some(known_char_info) if known_char_info.iter().any(|(l, p)| l == &input_char && p == &LetterPosition::Correct) =>
+                        (input_char, Some(LetterPosition::Correct)),
+                    _ => (input_char, None)
+                }
+            })
             .map(|(input_char, input_position)| {
-                let color = match input_position {
-                    Some(ip) => ip.color(),
-                    None => Color::White
-                };
+                let color = input_position.map_or(Color::White, LetterPosition::color);
 
                 Span::from(input_char.to_string()).style(Style::default().fg(color))
             })
@@ -251,16 +268,17 @@ impl App {
         let [guess_area, input_area] = vertical.areas(frame.area());
 
         let guesses: Vec<ListItem> = self
-            .guesses_parsed
+            .guesses
             .iter()
-            .map(|g| {
-                let colored_spans = g.iter()
-                    .map(|g|
-                        Span::from(g.letter.to_string()).style(Style::default().fg(g.position.color()))
+            .map(|letters| {
+                let colored_spans = letters.iter()
+                    .map(|(c, p)|
+                        Span::from(c.to_string())
+                            .style(Style::default().fg(p.unwrap_or(LetterPosition::None).color()))
                     )
                     .collect::<Vec<Span>>();
 
-                ListItem::new(Line::from(colored_spans))
+                ListItem::new(Line::from(colored_spans).centered())
             })
             .collect();
 
@@ -273,6 +291,8 @@ impl App {
         let input = Paragraph::new(self.color_from_known_information(&self.current_guess_input)).centered();
 
         frame.render_widget(input, input_area);
+
+        #[allow(clippy::cast_possible_truncation)]
         frame.set_cursor_position(Position::new(
             input_area.x + self.current_guess_input.len() as u16,
             input_area.y,
