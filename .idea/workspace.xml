@@ -9,6 +9,7 @@
   <component name="ChangeListManager">
     <list default="true" id="23e0e4cf-1f02-4bb7-baf5-58512ca087cb" name="Changes" comment="meh">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -103,7 +104,8 @@
       <workItem from="1727810354601" duration="6934000" />
       <workItem from="1727817690302" duration="3824000" />
       <workItem from="1727823821711" duration="7702000" />
-      <workItem from="1727869645628" duration="2149000" />
+      <workItem from="1727869645628" duration="2239000" />
+      <workItem from="1727918293747" duration="302000" />
     </task>
     <task id="LOCAL-00001" summary="stuntin on them hoes">
       <option name="closed" value="true" />

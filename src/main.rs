@@ -21,6 +21,7 @@ use std::{
     fs,
     mem,
 };
+use std::collections::HashSet;
 use ratatui::style::Stylize;
 use ureq::{
     serde_json,
@@ -69,7 +70,7 @@ fn main() -> anyhow::Result<()> {
         word_list,
         guesses: Vec::new(),
         known_positions: HashMap::new(),
-        bad_characters: Vec::new(),
+        bad_characters: HashSet::new(),
         current_guess_input: String::new(),
         exit: false,
     };
@@ -143,7 +144,7 @@ struct App {
 
     guesses: Vec<Vec<(char, Option<LetterPosition>)>>,
     known_positions: HashMap<usize, Vec<(char, LetterPosition)>>,
-    bad_characters: Vec<char>,
+    bad_characters: HashSet<char>,
 
     current_guess_input: String,
 
@@ -209,9 +210,7 @@ impl App {
         for (index, letter) in g.char_indices() {
             // add to bad characters if irrelevant
             if !contains_letter(letter) {
-                if !self.bad_characters.contains(&letter) {
-                    self.bad_characters.push(letter);
-                }
+                self.bad_characters.insert(letter);
                 continue;
             }
 
