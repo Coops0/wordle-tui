@@ -132,6 +132,14 @@ impl LetterPosition {
             Self::Correct => Color::LightGreen,
         }
     }
+
+    const fn value(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::WrongPlacement => 1,
+            Self::Correct => 2,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -265,11 +273,14 @@ impl App {
                 }
 
                 if let Some(known_char_info) = self.known_positions.get(&input_index) {
-                    if known_char_info.iter().any(|(l, p)| {
-                        l.eq_ignore_ascii_case(&input_char) && p == &LetterPosition::Correct
-                    }) {
-                        return (input_char, Some(LetterPosition::Correct));
-                    }
+                    let mut relevant_char_info = known_char_info.iter()
+                        .filter(|(l, p)| l.eq_ignore_ascii_case(&input_char) && p != &LetterPosition::None)
+                        .map(|(_, p)| *p)
+                        .collect::<Vec<_>>();
+                    relevant_char_info.sort_by_key(|p| p.value());
+                    relevant_char_info.reverse();
+
+                    return (input_char, relevant_char_info.first().copied());
                 }
 
                 (input_char, None)

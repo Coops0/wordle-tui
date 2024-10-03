@@ -9,6 +9,7 @@
   <component name="ChangeListManager">
     <list default="true" id="23e0e4cf-1f02-4bb7-baf5-58512ca087cb" name="Changes" comment="meh">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.play.state.txt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -19,6 +20,9 @@
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$USER_HOME$/Library/Caches/JetBrains/RustRover2024.3/intellij-rust/stdlib-local-copy/bundled-1.81.0/library/alloc/src/slice.rs" root0="SKIP_INSPECTION" />
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="sgjqssm0" />
@@ -104,7 +108,8 @@
       <workItem from="1727817690302" duration="3824000" />
       <workItem from="1727823821711" duration="7702000" />
       <workItem from="1727869645628" duration="2239000" />
-      <workItem from="1727918293747" duration="759000" />
+      <workItem from="1727918293747" duration="770000" />
+      <workItem from="1727986318015" duration="798000" />
     </task>
     <task id="LOCAL-00001" summary="stuntin on them hoes">
       <option name="closed" value="true" />
@@ -132,5 +137,16 @@
     <MESSAGE value="stuntin on them hoes" />
     <MESSAGE value="meh" />
     <option name="LAST_COMMIT_MESSAGE" value="meh" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/src/main.rs</url>
+          <line>308</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>
