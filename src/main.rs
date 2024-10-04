@@ -103,6 +103,7 @@ fn fetch_word_list() -> anyhow::Result<Vec<String>> {
         .call()?
         .into_string()?;
 
+    // [...noise] const o=[ *[WORD ARRAY]* ] [...noise]
     let (array_json, _) = res
         .split_once("const o=[")
         .and_then(|(_, p)| p.split_once(']'))
