@@ -132,14 +132,12 @@ impl LetterPosition {
             Self::Correct => Color::LightGreen,
         }
     }
+}
 
-    const fn value(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::WrongPlacement => 1,
-            Self::Correct => 2,
-        }
-    }
+type HashedLetterIndex = u8;
+const fn hash_letter_and_index(letter: char, index: u8) -> HashedLetterIndex {
+    let letter_value = (letter as u8) - b'A';
+    (letter_value << 3) | index
 }
 
 #[derive(Debug)]
@@ -148,7 +146,8 @@ struct App {
     word_list: Vec<String>,
 
     guesses: Vec<Vec<(char, Option<LetterPosition>)>>,
-    known_positions: HashMap<usize, Vec<(char, LetterPosition)>>,
+    // todo, use a hashmap with bit made index+char -> letter pos
+    known_positions: HashMap<HashedLetterIndex, LetterPosition>,
     bad_characters: HashSet<char>,
 
     current_guess_input: String,
@@ -251,10 +250,7 @@ impl App {
             .enumerate()
             .filter_map(|(i, &(l, pos_opt))| pos_opt.map(|pos| (i, (l, pos))))
             .for_each(|(index, (letter, position))| {
-                self.known_positions
-                    .entry(index)
-                    .or_default()
-                    .push((letter, position));
+                self.known_positions.insert(hash_letter_and_index(letter, index as u8), position);
             });
 
         self.guesses.push(parsed_guess);
@@ -272,18 +268,10 @@ impl App {
                     return (input_char, Some(LetterPosition::None));
                 }
 
-                if let Some(known_char_info) = self.known_positions.get(&input_index) {
-                    let mut relevant_char_info = known_char_info.iter()
-                        .filter(|(l, p)| l.eq_ignore_ascii_case(&input_char) && p != &LetterPosition::None)
-                        .map(|(_, p)| *p)
-                        .collect::<Vec<_>>();
-                    relevant_char_info.sort_by_key(|p| p.value());
-                    relevant_char_info.reverse();
+                #[allow(clippy::cast_possible_truncation)]
+                let known_char_info = self.known_positions.get(&hash_letter_and_index(input_char, input_index as u8));
 
-                    return (input_char, relevant_char_info.first().copied());
-                }
-
-                (input_char, None)
+                (input_char, known_char_info.copied())
             })
             .map(|(input_char, input_position)| {
                 let color = input_position.map_or(Color::White, LetterPosition::color);
@@ -304,7 +292,7 @@ impl App {
             ])
             .split(frame.area());
 
-        let title = Paragraph::new("WORDLE")
+        let title = Paragraph::new("wordle")
             .style(Style::default().fg(Color::LightBlue).dim())
             .centered();
         frame.render_widget(title, layout[0]);
@@ -333,10 +321,7 @@ impl App {
         frame.render_widget(guesses_list, layout[1]);
 
         let input = Paragraph::new(self.color_from_known_information(&self.current_guess_input))
-            .left_aligned();
+            .centered();
         frame.render_widget(input, layout[2]);
-
-        #[allow(clippy::cast_possible_truncation)]
-        frame.set_cursor_position((self.current_guess_input.len() as u16, layout[2].y));
     }
 }
