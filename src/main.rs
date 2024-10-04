@@ -29,23 +29,22 @@ fn main() -> anyhow::Result<()> {
         bail!("solution value was not type of string");
     };
 
-    let word_list;
-    if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
-        word_list = word_list_cache
+    let word_list = if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
+        word_list_cache
             .lines()
             .map(ToString::to_string)
-            .collect::<HashSet<String>>();
+            .collect::<HashSet<String>>()
     } else {
         println!("fetching word list...");
 
         let fetched_wl = fetch_word_list()?;
 
         fs::write(".word-list.cache.txt", fetched_wl.join("\n"))?;
-        word_list = fetched_wl
+        fetched_wl
             .into_iter()
             .map(|w| w.to_uppercase())
-            .collect::<HashSet<String>>();
-    }
+            .collect::<HashSet<String>>()
+    };
 
     if let Ok(play_cache) = fs::read_to_string(".play.state.txt") {
         let mut lines = play_cache.lines().collect::<Vec<&str>>();
