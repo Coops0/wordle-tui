@@ -12,6 +12,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs, mem,
 };
+use std::hash::{Hash, Hasher};
 use ureq::serde_json::{self, Value};
 
 fn main() -> anyhow::Result<()> {
@@ -28,20 +29,22 @@ fn main() -> anyhow::Result<()> {
         bail!("solution value was not type of string");
     };
 
-    let mut word_list;
-
+    let word_list;
     if let Ok(word_list_cache) = fs::read_to_string(".word-list.cache.txt") {
         word_list = word_list_cache
             .lines()
             .map(ToString::to_string)
-            .collect::<Vec<String>>();
+            .collect::<HashSet<String>>();
     } else {
         println!("fetching word list...");
 
-        word_list = fetch_word_list()?;
-        word_list.iter_mut().for_each(|s| *s = s.to_uppercase());
+        let fetched_wl = fetch_word_list()?;
 
-        fs::write(".word-list.cache.txt", word_list.join("\n"))?;
+        fs::write(".word-list.cache.txt", fetched_wl.join("\n"))?;
+        word_list = fetched_wl
+            .into_iter()
+            .map(|w| w.to_uppercase())
+            .collect::<HashSet<String>>();
     }
 
     if let Ok(play_cache) = fs::read_to_string(".play.state.txt") {
@@ -134,19 +137,34 @@ impl LetterPosition {
     }
 }
 
-type HashedLetterIndex = u8;
-const fn hash_letter_and_index(letter: char, index: u8) -> HashedLetterIndex {
-    let letter_value = (letter as u8) - b'A';
-    (letter_value << 3) | index
+#[derive(Debug, Eq, PartialEq)]
+struct HashedLetterIndex(char, u8);
+macro_rules! impl_into_hli {
+    ($prim:ty) => {
+        impl From<(char, $prim)> for HashedLetterIndex {
+            fn from((letter, pos): (char, $prim)) -> Self {
+                #[allow(clippy::cast_possible_truncation)]
+                Self(letter, pos as u8)
+            }
+        }
+    };
+}
+impl_into_hli!(u8);
+impl_into_hli!(usize);
+
+impl Hash for HashedLetterIndex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let letter_value = (self.0 as u8) - b'A';
+        state.write_u8((letter_value << 3) | self.1);
+    }
 }
 
 #[derive(Debug)]
 struct App {
     solution: String,
-    word_list: Vec<String>,
+    word_list: HashSet<String>,
 
     guesses: Vec<Vec<(char, Option<LetterPosition>)>>,
-    // todo, use a hashmap with bit made index+char -> letter pos
     known_positions: HashMap<HashedLetterIndex, LetterPosition>,
     bad_characters: HashSet<char>,
 
@@ -250,7 +268,7 @@ impl App {
             .enumerate()
             .filter_map(|(i, &(l, pos_opt))| pos_opt.map(|pos| (i, (l, pos))))
             .for_each(|(index, (letter, position))| {
-                self.known_positions.insert(hash_letter_and_index(letter, index as u8), position);
+                self.known_positions.insert((letter, index).into(), position);
             });
 
         self.guesses.push(parsed_guess);
@@ -269,7 +287,7 @@ impl App {
                 }
 
                 #[allow(clippy::cast_possible_truncation)]
-                let known_char_info = self.known_positions.get(&hash_letter_and_index(input_char, input_index as u8));
+                let known_char_info = self.known_positions.get(&(input_char, input_index).into());
 
                 (input_char, known_char_info.copied())
             })
