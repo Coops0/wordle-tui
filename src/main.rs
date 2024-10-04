@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{bail, Context, Result};
 use chrono::Local;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -15,14 +15,13 @@ use std::{
 use std::hash::{Hash, Hasher};
 use ureq::serde_json::{self, Value};
 
-fn main() -> anyhow::Result<()> {
-    let date_string = Local::now().format("%Y-%m-%d");
-
+fn main() -> Result<()> {
     let wordle_api_response = ureq::get(&format!(
-        "https://www.nytimes.com/svc/wordle/v2/{date_string}.json"
+        "https://www.nytimes.com/svc/wordle/v2/{}.json",
+        Local::now().format("%Y-%m-%d")
     ))
         .call()
-        .context("Error querying wordle API")?
+        .context("failed to fetch wordle api")?
         .into_json::<Value>()?;
 
     let Value::String(solution) = &wordle_api_response["solution"] else {
@@ -38,8 +37,8 @@ fn main() -> anyhow::Result<()> {
         println!("fetching word list...");
 
         let fetched_wl = fetch_word_list()?;
-
         fs::write(".word-list.cache.txt", fetched_wl.join("\n"))?;
+
         fetched_wl
             .into_iter()
             .map(|w| w.to_uppercase())
@@ -55,7 +54,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut terminal = ratatui::init();
-
     let mut app = App {
         solution: solution.to_owned().to_uppercase(),
         word_list,
@@ -84,10 +82,10 @@ fn main() -> anyhow::Result<()> {
 
     if emojis.len() == 6 || // used all guesses
         app.guesses.last().is_some_and(|guess|
-            guess.iter().all(|(_, p)| p == &Some(LetterPosition::Correct))
+            guess.iter().all(|(_, p)| p == &Some(LetterPosition::Correct)) // got right answer
         )
     {
-        // got correct answer
+        // got correct answer, they can't play again today!
         fs::write(
             ".play.state.txt",
             format!("{solution}\n{}", emojis.join("\n")),
@@ -97,7 +95,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn fetch_word_list() -> anyhow::Result<Vec<String>> {
+fn fetch_word_list() -> Result<Vec<String>> {
     let res = ureq::get("https://www.nytimes.com/games-assets/v2/9673.7e73cdd39fb6121fa17d.js")
         .call()?
         .into_string()?;
@@ -174,7 +172,7 @@ struct App {
 }
 
 impl App {
-    fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+    fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
@@ -183,7 +181,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_events(&mut self) -> anyhow::Result<()> {
+    fn handle_events(&mut self) -> Result<()> {
         let e = event::read()?;
         let Event::Key(key_event) = e else {
             return Ok(());
@@ -286,10 +284,10 @@ impl App {
                     return (input_char, Some(LetterPosition::None));
                 }
 
-                #[allow(clippy::cast_possible_truncation)]
-                let known_char_info = self.known_positions.get(&(input_char, input_index).into());
-
-                (input_char, known_char_info.copied())
+                (
+                    input_char,
+                    self.known_positions.get(&(input_char, input_index).into()).copied()
+                )
             })
             .map(|(input_char, input_position)| {
                 let color = input_position.map_or(Color::White, LetterPosition::color);
