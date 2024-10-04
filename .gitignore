@@ -1,3 +1,5 @@
 .idea
 /target
 .DS_Store
+.word-list.cache.txt
+.play.state.txt
